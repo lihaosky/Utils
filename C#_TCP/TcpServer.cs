@@ -24,12 +24,12 @@ public  class SynchronousSocketListener {
     try {
               listener.Start();
         
-              int TestingCycle = 3 ; 
+              int TestingCycle = 10 ; 
               int ClientNbr = 0 ;
         
               // Start listening for connections.
               Console.WriteLine("Waiting for a connection...");
-              while ( TestingCycle > 0 ) {
+              while (true) {
                       
                         TcpClient handler = listener.AcceptTcpClient();
                         
@@ -102,6 +102,7 @@ class ClientHandler {
 	}
 
 	private  void Process() {
+        int count = 10;
 
 		// Incoming data from the client.
 		 string data = null;
@@ -113,10 +114,10 @@ class ClientHandler {
                         NetworkStream networkStream = ClientSocket.GetStream();
                         ClientSocket.ReceiveTimeout = 100 ; // 1000 miliseconds
 
-			while ( ContinueProcess ) {
-                                bytes = new byte[ClientSocket.ReceiveBufferSize];
+			while (count-- > 0  ) {
+                                bytes = new byte[1024];
                                 try {
-                                        int BytesRead = networkStream.Read(bytes, 0, (int) ClientSocket.ReceiveBufferSize);
+                                        int BytesRead = networkStream.Read(bytes, 0, 1024);
                                         if ( BytesRead > 0 ) {
                                                 data = Encoding.ASCII.GetString(bytes, 0, BytesRead);
                 
@@ -124,10 +125,13 @@ class ClientHandler {
                                                 Console.WriteLine( "Text received : {0}", data);
                 
                                                 // Echo the data back to the client.
-                                                byte[] sendBytes = Encoding.ASCII.GetBytes(data);
-                                                networkStream.Write(sendBytes, 0, sendBytes.Length);
+                                              //  byte[] sendBytes = Encoding.ASCII.GetBytes(data);
+                                               // networkStream.Write(sendBytes, 0, sendBytes.Length);
                                                 
-                                                if ( data == "quit" ) break ;
+                                                if ( data == "quit\r\n" ) {
+                                                    Console.WriteLine("Quit!");
+                                                    break ;
+                                                }
 
                                         }
                                 }
@@ -136,10 +140,10 @@ class ClientHandler {
                                         Console.WriteLine( "Conection is broken!");
                                         break ;
                                 }
-                                Thread.Sleep(200) ;
-	               } // while ( ContinueProcess )
+	               } 
                        networkStream.Close() ;
         	       ClientSocket.Close();			
+                   Console.WriteLine("Connection closed!");
 		}
 	}  // Process()
 
