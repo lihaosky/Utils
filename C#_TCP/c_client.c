@@ -15,6 +15,7 @@
 int cur_client_num = 0;
 int client_num;
 int port_num;
+int total_sent = 0;
 struct hostent *server;
 struct sockaddr_in server_addr;
 pthread_mutex_t client_num_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -26,6 +27,8 @@ void error_msg(const char *msg) {
 
 void* thread_fun() {
 	int sockfd;
+        int counter = 10;
+        int sent = 0;
 #ifdef kb 
 	char write_buffer[KB];
 	char recv_buffer[KB];
@@ -63,12 +66,16 @@ void* thread_fun() {
 
     printf("Starting sending!");
 	
-	while (1) {
+	while (counter--) {
 		ret = send(sockfd, write_buffer, sizeof(write_buffer), 0);
 		if (ret < 0) {
 			close(sockfd);
 			return;
 		}
+                pthread_mutex_lock(&client_num_mutex);
+                total_sent += ret;
+                pthread_mutex_unlock(&client_num_mutex);
+                printf("Sents bytes are %d\n", total_sent);
 	}
 }
 
@@ -126,11 +133,11 @@ int main(int argc, char **argv) {
     elapse_time = (double)((int64_t)end.tv_sec * N + (int64_t)end.tv_nsec - (int64_t)start.tv_sec * N - (int64_t)start.tv_nsec) / N;
     printf("Elapsed time is %f seconds\n", elapse_time);
 #ifdef kb
-    printf("Throughput is %f kb/sec\n", 10 * client_num / elapse_time);
+    printf("Throughput is %f kb/sec\n", total_sent / elapse_time / 1024);
 #endif
 
 #ifdef mb
-    printf("Throughput is %f kb/sec\n", 1024 * 10 * client_num / elaspe_time);
+    printf("Throughput is %f kb/sec\n", total_sent / elapse_time / 1024);
 #endif
 	
 	exit(0);

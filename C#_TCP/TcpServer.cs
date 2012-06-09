@@ -102,22 +102,27 @@ class ClientHandler {
 	}
 
 	private  void Process() {
-        int count = 10;
+        int count = 12;
 
 		// Incoming data from the client.
 		 string data = null;
 
 		// Data buffer for incoming data.
 		byte[] bytes;
+                int readBytes = 0;
 
 		if ( ClientSocket != null ) {
                         NetworkStream networkStream = ClientSocket.GetStream();
                         ClientSocket.ReceiveTimeout = 100 ; // 1000 miliseconds
 
 			while (count-- > 0  ) {
-                                bytes = new byte[1024];
+                                bytes = new byte[1024*1024];
                                 try {
-                                        int BytesRead = networkStream.Read(bytes, 0, 1024);
+                                        int BytesRead = networkStream.Read(bytes, 0, 1024*1024);
+                                        readBytes += BytesRead;
+
+                                        Console.WriteLine("Read {0}", BytesRead);
+
                                         if ( BytesRead > 0 ) {
                                                 data = Encoding.ASCII.GetString(bytes, 0, BytesRead);
                 
@@ -141,6 +146,7 @@ class ClientHandler {
                                         break ;
                                 }
 	               } 
+                       Console.WriteLine("Totally read {0}", readBytes); 
                        networkStream.Close() ;
         	       ClientSocket.Close();			
                    Console.WriteLine("Connection closed!");
