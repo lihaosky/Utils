@@ -8,13 +8,13 @@ using System.Threading;
 
 public  class SynchronousSocketListener {
         
-  private  const int   portNum = 10116 ;
+  private  const int   portNum = 1234 ;
   private  static  ArrayList ClientSockets  ;
   private  static   bool ContinueReclaim =  true;
   private  static   Thread ThreadReclaim ;
-  
-  public  static  void StartListening() {
+  private  static int totalToRecv = 0;
 
+  public  static  void StartListening() {
     ClientSockets = new ArrayList() ;
     
     ThreadReclaim = new Thread( new ThreadStart(Reclaim) );
@@ -24,7 +24,6 @@ public  class SynchronousSocketListener {
     try {
               listener.Start();
         
-              int TestingCycle = 10 ; 
               int ClientNbr = 0 ;
         
               // Start listening for connections.
@@ -37,10 +36,9 @@ public  class SynchronousSocketListener {
                                 Console.WriteLine("Client#{0} accepted!", ++ClientNbr) ;
                                 // An incoming connection needs to be processed.
                                 lock( ClientSockets.SyncRoot ) {
-                                        int i = ClientSockets.Add( new ClientHandler(handler) ) ;
+                                        int i = ClientSockets.Add(new ClientHandler(handler, totalToRecv)) ;
                                         ((ClientHandler) ClientSockets[i]).Start() ;
                                 }
-                                --TestingCycle ;
                         }
                         else 
                                 break;                
@@ -80,6 +78,8 @@ public  class SynchronousSocketListener {
   
   
   public  static  int Main(String[] args) {
+    totalToRecv = Int32.Parse(args[0]);
+    Console.WriteLine("Total to receive is {0} bytes", totalToRecv);
     StartListening();
     return 0;
   }
@@ -90,9 +90,11 @@ class ClientHandler {
 	TcpClient ClientSocket ;
 	bool ContinueProcess = false ;
 	Thread ClientThread ;
+        int totalToRecv;
 
-	public ClientHandler (TcpClient ClientSocket) {
+	public ClientHandler (TcpClient ClientSocket, int tTR) {
 		this.ClientSocket = ClientSocket ;
+                totalToRecv = tTR;
 	}
 
 	public void Start() {
@@ -102,43 +104,21 @@ class ClientHandler {
 	}
 
 	private  void Process() {
-        int count = 12;
-
-		// Incoming data from the client.
-		 string data = null;
-
 		// Data buffer for incoming data.
 		byte[] bytes;
                 int readBytes = 0;
 
 		if ( ClientSocket != null ) {
                         NetworkStream networkStream = ClientSocket.GetStream();
-                        ClientSocket.ReceiveTimeout = 100 ; // 1000 miliseconds
+                      //ClientSocket.ReceiveTimeout = 100 ; // 1000 miliseconds
 
-			while (count-- > 0  ) {
-                                bytes = new byte[1024*1024];
+			while (readBytes < totalToRecv) {
+                                bytes = new byte[ClientSocket.ReceiveBufferSize];
                                 try {
-                                        int BytesRead = networkStream.Read(bytes, 0, 1024*1024);
+                                        int BytesRead = networkStream.Read(bytes, 0, (int)ClientSocket.ReceiveBufferSize);
                                         readBytes += BytesRead;
 
                                         Console.WriteLine("Read {0}", BytesRead);
-
-                                        if ( BytesRead > 0 ) {
-                                                data = Encoding.ASCII.GetString(bytes, 0, BytesRead);
-                
-                                                // Show the data on the console.
-                                                Console.WriteLine( "Text received : {0}", data);
-                
-                                                // Echo the data back to the client.
-                                              //  byte[] sendBytes = Encoding.ASCII.GetBytes(data);
-                                               // networkStream.Write(sendBytes, 0, sendBytes.Length);
-                                                
-                                                if ( data == "quit\r\n" ) {
-                                                    Console.WriteLine("Quit!");
-                                                    break ;
-                                                }
-
-                                        }
                                 }
                                 catch  ( IOException ) { } // Timeout
                                 catch  ( SocketException ) {

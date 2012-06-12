@@ -14,7 +14,7 @@ class SharedState {
 
 public  class SynchronousSocketListener {
         
-  private  const int    portNum = 10116 ;
+  private  const int    portNum = 1234;
   private  static       SharedState SharedStateObj  ;
   
   public  static  void StartListening() {

@@ -87,7 +87,7 @@ class ClientService {
 
 public  class SynchronousSocketListener {
         
-  private  const int  portNum = 10116 ;
+  private  const int  portNum = 1234 ;
   
   public  static  void StartListening() {
 
