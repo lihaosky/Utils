@@ -1,55 +1,74 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Collections;
 using System.Threading;
 
+class StateObject {
+    public byte[] buffer = new byte[1024*64];
+    public int totalReceived = 0;
+    public Socket socket;
+}
+
 public class NonblockingServer {
+    public static int totalToRecv = 0;
     public static ManualResetEvent clientConnected = new ManualResetEvent(false);
-    public byte[] buffer = new byte[1024];
+    public static Socket server;
 
-    public static void doBeginAcceptSocket(TcpListener listener) {
-        clientConnected.Reset();
-
+    public static void doBeginAcceptSocket() {
         Console.WriteLine("Wait for connection...");
 
-        listener.BeginAcceptSocket(new AsyncCallback(DoAcceptSocketCallback), listener);
-
-        Console.WriteLine("Begin listening...");
-
-        clientConnected.WaitOne();
+        server = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        IPEndPoint ipLocal = new IPEndPoint(IPAddress.Any, 1234);
+        server.Bind(ipLocal);
+        server.Listen(10);
+        server.BeginAccept(new AsyncCallback(DoAcceptSocketCallback), server);
     }
 
     public static void DoAcceptSocketCallback(IAsyncResult ar) {
-        TcpListener listener = (TcpListener) ar.AsyncState;
+        clientConnected.Reset();
+        Socket listener = (Socket) ar.AsyncState;
 
-        Socket socket = listener.EndAcceptSocket(ar);
+        Socket socket = listener.EndAccept(ar);
+//        clientConnected.Set();
 
         Console.WriteLine("Socket accepted!");
-        
         Console.WriteLine("Begin reading...");
-        byte[] buffer = new byte[1024];
-        socket.BeginReceive(buffer, 0, 1024, 0, new AsyncCallback(ReadCallback), socket);
+
+        StateObject so = new StateObject();
+        so.socket = socket;
+        
+        socket.BeginReceive(so.buffer, 0, 64*1024, 0, new AsyncCallback(ReadCallback), so);
+        server.BeginAccept(new AsyncCallback(DoAcceptSocketCallback), server);
     }
 
     public static void ReadCallback(IAsyncResult ar) {
-        Socket socket = (Socket) ar.AsyncState;
+        StateObject so = (StateObject) ar.AsyncState;
+        Socket socket = so.socket;
 
         int byteRead = socket.EndReceive(ar);
 
         if (byteRead > 0) {
-            Console.WriteLine("{0} received!", byteRead);
-            byte[] buffer = new byte[1024];
-            socket.BeginReceive(buffer, 0, 1024, 0, new AsyncCallback(ReadCallback), socket);
+            so.totalReceived += byteRead;
+            Console.WriteLine("{0} received!", so.totalReceived);
+            
+            if (so.totalReceived < totalToRecv) {
+                socket.BeginReceive(so.buffer, 0, 64*1024, 0, new AsyncCallback(ReadCallback), so);
+            } else {
+                Console.WriteLine("Connection closed!");
+                socket.Close();
+            }
         } else {
             Console.WriteLine("Connection closed!");
+            socket.Close();
         }
     }
 
     public static void Main(String[] args) {
-        TcpListener listener = new TcpListener(1234);
-        listener.Start();
-        doBeginAcceptSocket(listener);
+        totalToRecv = Int32.Parse(args[0]);
+        doBeginAcceptSocket();
+        clientConnected.WaitOne();
     }
 }

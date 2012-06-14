@@ -75,10 +75,11 @@ void* thread_fun() {
             ret = send(sockfd, write_buffer, total_to_send - sent, 0);
         }
 
-	if (ret < 0) {
+    	if (ret < 0) {
+            printf("Remote side closed socket!");
             close(sockfd);
 	    return;
-	}
+    	}
 
         pthread_mutex_lock(&client_num_mutex);
         total_sent += ret;
