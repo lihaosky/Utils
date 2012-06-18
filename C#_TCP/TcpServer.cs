@@ -117,8 +117,12 @@ class ClientHandler {
                                 try {
                                         int BytesRead = networkStream.Read(bytes, 0, (int)ClientSocket.ReceiveBufferSize);
                                         readBytes += BytesRead;
+                                        
+                                        if (BytesRead == 0) {
+                                            break;
+                                        }
 
-                                        Console.WriteLine("Read {0}", BytesRead);
+                                        Console.Write("{0}", Encoding.ASCII.GetString(bytes, 0, BytesRead));
                                 }
                                 catch  ( IOException ) { } // Timeout
                                 catch  ( SocketException ) {
