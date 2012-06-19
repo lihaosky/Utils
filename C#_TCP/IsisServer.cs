@@ -51,7 +51,7 @@ namespace IsisService {
 		           	    }
 		           	    // An incoming connection needs to be processed.
 		            	lock( ClientSockets.SyncRoot ) {
-		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, QUERY));
+		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, QUERY, isVerbose));
 		                    ((ClientHandler) ClientSockets[i]).Start();
 		                }
 		            }            
@@ -234,12 +234,14 @@ namespace IsisService {
 		Group[] myGroup;
 		Isis.Timeout timeout;
 		int QUERY;
+		bool isVerbose;
 		
-		public ClientHandler (TcpClient ClientSocket, Group[] myGroup, int timeout, int query) {
+		public ClientHandler (TcpClient ClientSocket, Group[] myGroup, int timeout, int query, bool isVerbose) {
 			this.ClientSocket = ClientSocket;
 			this.myGroup = myGroup;
 			this.timeout = new Isis.Timeout(timeout, Isis.Timeout.TO_FAILURE);
 			QUERY = query;
+			this.isVerbose = isVerbose;
 		}
 
 		public void Start() {
@@ -260,13 +262,24 @@ namespace IsisService {
 				using (StreamReader reader = new StreamReader(ClientSocket.GetStream(), System.Text.Encoding.ASCII)) {
 					string command = "";
 					while ((line = reader.ReadLine()) != null) {
+						if (isVerbose) {
+							Console.WriteLine("Received a line {0} from client", line);
+						}
 						//End of command, use ISIS to send the command!
 						if (line == "") {
 							List<string> replyList = new List<string>();
 							int nr = myGroup[0].Query(Group.ALL, timeout, QUERY, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
-							foreach (string s in replyList) {
-								Console.WriteLine(s);
+							
+							if (isVerbose) {
+								foreach (string s in replyList) {
+									Console.WriteLine("Received reply {0}", s);
+								}
 							}
+							
+							String reply = "OK.\r\n";
+							byte[] sendBytes = Encoding.ASCII.GetBytes(reply);
+							networkStream.Write(sendBytes, 0, sendBytes.Length);
+							
 							command = "";
 						} else {
 							command += line;
@@ -277,7 +290,10 @@ namespace IsisService {
 			   	 
 		        networkStream.Close();
 		    	ClientSocket.Close();			
-		        Console.WriteLine("Connection closed!");
+		    	
+		    	if (isVerbose) {
+		        	Console.WriteLine("Connection closed!");
+		        }
 			}
 		}  // Process()
 
