@@ -116,11 +116,12 @@ namespace IsisService {
 	  		}
 	  		
 	  		for (int i = 0; i < shardSize; i++) {
+	  			int local = i;
 	  			shardGroup[i].Handlers[QUERY] += (query)delegate(string command) {
 	  				if (isVerbose) {
 	  					Console.WriteLine("Got a command {0}" + command);
 	  				}
-	  				shardGroup[i].Reply("Yes");
+	  				shardGroup[local].Reply("Yes");
 	  			};
 	  			shardGroup[i].ViewHandlers += (Isis.ViewHandler)delegate(View v) {
 	  				if (isVerbose) {
