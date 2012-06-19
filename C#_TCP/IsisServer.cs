@@ -9,7 +9,7 @@ using System.Threading;
 using Isis;
 
 namespace IsisService {
-	delegate void query(string command);
+	delegate void query(string command, int rank);
 	
 	public  class SynchronousSocketListener {
 		private static int nodeNum = -1;              //Node number. Has to be specified
@@ -117,9 +117,15 @@ namespace IsisService {
 	  		
 	  		for (int i = 0; i < shardSize; i++) {
 	  			int local = i;
-	  			shardGroup[i].Handlers[QUERY] += (query)delegate(string command) {
+	  			shardGroup[i].Handlers[QUERY] += (query)delegate(string command, int rank) {
 	  				if (isVerbose) {
 	  					Console.WriteLine("Got a command {0}" + command);
+	  				}
+	  				
+	  				if (shardGroup[local].GetView().GetMyRank() == rank) {
+	  					if (isVerbose) {
+	  						Console.WriteLine("Got a message from myself!");
+	  					}
 	  				}
 	  				shardGroup[local].Reply("Yes");
 	  			};
@@ -230,7 +236,7 @@ namespace IsisService {
 						//End of command, use ISIS to send the command!
 						if (line == "") {
 							List<string> replyList = new List<string>();
-							int nr = myGroup[0].Query(Group.ALL, timeout, QUERY, command, new EOLMarker(), replyList);
+							int nr = myGroup[0].Query(Group.ALL, timeout, QUERY, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
 							foreach (string s in replyList) {
 								Console.WriteLine(s);
 							}
