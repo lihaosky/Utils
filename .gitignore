@@ -2,3 +2,6 @@
 *.out
 *.o
 *~
+Isis.cs
+*.log
+IsisTest.cs
