@@ -47,22 +47,22 @@ namespace IsisService {
 		                    
 		            if (handler != null)  {
 		            	if (isVerbose) {
-	 	            		Console.WriteLine("Client#{0} accepted!", ++ClientNbr) ;
+	 	            		Console.WriteLine("Client#{0} accepted!", ++ClientNbr);
 		           	    }
 		           	    // An incoming connection needs to be processed.
 		            	lock( ClientSockets.SyncRoot ) {
-		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, QUERY)) ;
-		                    ((ClientHandler) ClientSockets[i]).Start() ;
+		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, QUERY));
+		                    ((ClientHandler) ClientSockets[i]).Start();
 		                }
 		            }            
 		        }
 		        listener.Stop();
 		          
 		        ContinueReclaim = false ;
-		        ThreadReclaim.Join() ;
+		        ThreadReclaim.Join();
 		          
 		        foreach ( Object Client in ClientSockets ) {
-		        	( (ClientHandler) Client ).Stop() ;
+		        	( (ClientHandler) Client ).Stop();
 		        }
 		        
 			} catch (Exception e) {
@@ -86,7 +86,7 @@ namespace IsisService {
 		                    }
 		            }
 		        }
-		        Thread.Sleep(200) ;
+		        Thread.Sleep(200);
 		    }         
 	  	}
 	  	
@@ -275,22 +275,22 @@ namespace IsisService {
 					}
 				}
 			   	 
-		        networkStream.Close() ;
+		        networkStream.Close();
 		    	ClientSocket.Close();			
 		        Console.WriteLine("Connection closed!");
 			}
 		}  // Process()
 
 		public void Stop() 	{
-			ContinueProcess = false ;
-		    if ( ClientThread != null  && ClientThread.IsAlive ) {
-				ClientThread.Join() ;
+			ContinueProcess = false;
+		    if (ClientThread != null && ClientThread.IsAlive) {
+				ClientThread.Join();
 			}
 		}
 		    
 		public bool Alive {
 			get {
-				return  ( ClientThread != null  && ClientThread.IsAlive  );
+				return  (ClientThread != null  && ClientThread.IsAlive);
 			}
 	   	}      
 	} 
