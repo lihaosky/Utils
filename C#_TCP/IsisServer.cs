@@ -15,6 +15,8 @@ namespace IsisService {
 		private static int nodeNum = -1;              //Node number. Has to be specified
 		private static int myRank = -1;               //My rank. Has to be specified
 		private static int shardSize = -1;            //Shard size    
+		private static bool[] groupJoin;              //If all member in a group join
+		private static bool allJoin = false;          //If all the member has join
 		
 		private static int portNum = 1234;            //Default port number 1234
 		private static ArrayList ClientSockets;       //Array to store client sockets
@@ -105,9 +107,12 @@ namespace IsisService {
 	  		}
 	  		
 	  		shardGroup = new Group[shardSize];
+	  		groupJoin = new bool[shardSize];
+	  		
 	  		int groupNum = myRank;
 	  		for (int i = 0; i < shardSize; i++) {
 	  			shardGroup[i] = new Group("group"+groupNum);
+	  			groupJoin[i] = false;
 	  			
 	  			groupNum--;
 	  			if (groupNum < 0) {
@@ -129,9 +134,30 @@ namespace IsisService {
 	  				}
 	  				shardGroup[local].Reply("Yes");
 	  			};
+	  			
 	  			shardGroup[i].ViewHandlers += (Isis.ViewHandler)delegate(View v) {
 	  				if (isVerbose) {
 	  					Console.WriteLine("Got a new view {0}" + v);
+	  					Console.WriteLine("Group {0} has {1} members", local, shardGroup[local].GetView().GetSize());
+	  				}
+	  				
+	  				if (shardGroup[local].GetView().GetSize() == shardSize) {
+	  					groupJoin[local] = true;
+	  				}
+	  				
+	  				bool isAll = true;
+	  				for (int j = 0; j < shardSize; j++) {
+	  					if (groupJoin[j] == false) {
+	  						isAll = false;
+	  						break;
+	  					}
+	  				}
+	  				
+	  				if (isAll) {
+	  					allJoin = true;
+	  					if (isVerbose) {
+	  						Console.WriteLine("All the members have joined!");
+	  					}
 	  				}
 	  			};
 	  		}
@@ -194,6 +220,7 @@ namespace IsisService {
 			}
 			
 			createGroup();
+			while (allJoin == false);
 			StartListening();
 			return 0;
 	  	}
