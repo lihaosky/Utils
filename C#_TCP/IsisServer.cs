@@ -19,6 +19,7 @@ namespace IsisService {
 		private static bool allJoin = false;          //If all the member has join
 		
 		private static int portNum = 1234;            //Default port number 1234
+		private static int memPortNum = 9999;         //Default memcached port number 9999
 		private static ArrayList ClientSockets;       //Array to store client sockets
 		private static bool ContinueReclaim = true;   //If continue reclaim
 	 	private static Thread ThreadReclaim;          //Reclaim thread
@@ -92,7 +93,8 @@ namespace IsisService {
 	  	
 	  	private static void printUsage() {
 	  		Console.WriteLine("Usage:");
-	  		Console.Write("-p: port number. Default: 1234\n" + 
+	  		Console.Write("-p: listening port number. Default: 1234\n" + 
+	  					  "-m: memcached port number. Default: 9999\n" +
 	  		              "-v: is verbose. Default: no\n" + 
 	  		              "-n: total node number. Has to be specified\n" + 
 	  		              "-r: my rank. Has to be specified\n" +
@@ -131,8 +133,15 @@ namespace IsisService {
 	  					if (isVerbose) {
 	  						Console.WriteLine("Got a message from myself!");
 	  					}
+	  					shardGroup[local].Reply("Yes");
+	  				} else {
+	  					string ret = talkToMem(command);
+	  					if (ret == "STORED") {
+	  						shardGroup[local].Reply("Yes");
+	  					} else {
+	  						shardGroup[local].Reply("No");
+	  					}
 	  				}
-	  				shardGroup[local].Reply("Yes");
 	  			};
 	  			
 	  			shardGroup[i].ViewHandlers += (Isis.ViewHandler)delegate(View v) {
@@ -167,6 +176,33 @@ namespace IsisService {
 	  		}
 	  	}
 	  	
+	  	//Talk to local memcached
+	  	private static string talkToMem(string command) {
+	  		TcpClient client = new TcpClient();
+	  		string line = "";
+	  		try {
+	  			client.Connect("localhost", memPortNum);
+	  			NetworkStream ns = client.GetStream();
+	  			byte[] sendBytes = Encoding.ASCII.GetBytes(command);
+	  			StreamReader reader = new StreamReader(client.GetStream(), System.Text.Encoding.ASCII);
+	  			
+	  			//Send command to local memcached
+	  			if (ns.CanRead && ns.CanWrite) {
+	  				ns.Write(sendBytes, 0, sendBytes.Length);
+	  			}
+	  			
+	  			line = reader.ReadLine();
+	  			client.Close();
+	  		} catch (Exception e) {
+	  			Console.WriteLine("Exception in talking to memcached!");
+	  			if (client != null) {
+	  				client.Close();
+	  			}
+	  		}	
+	  			return line;
+	  	}
+	  	
+	  	//Main
 	  	public  static  int Main(String[] args) {
 			int i = 0;
 			while (i < args.Length) {
@@ -188,6 +224,9 @@ namespace IsisService {
 					i++;
 				} else if (args[i] == "-t") {
 					timeout = Int32.Parse(args[++i]);
+					i++;
+				} else if (args[i] == "-m") {
+					memPortNum = Int32.Parse(args[++i]);
 					i++;
 				} else {
 					Console.WriteLine("Unknown argument!");
