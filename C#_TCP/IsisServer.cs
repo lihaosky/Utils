@@ -267,6 +267,10 @@ namespace IsisService {
 						}
 						//End of command, use ISIS to send the command!
 						if (line == "") {
+							if (isVerbose) {
+								Console.WriteLine("Send command to other nodes. Wait for reply!");
+							}
+							
 							List<string> replyList = new List<string>();
 							int nr = myGroup[0].Query(Group.ALL, timeout, QUERY, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
 							
@@ -276,7 +280,8 @@ namespace IsisService {
 								}
 							}
 							
-							String reply = "OK.\r\n";
+							//Reply to memcached
+							String reply = "OK.\n";
 							byte[] sendBytes = Encoding.ASCII.GetBytes(reply);
 							networkStream.Write(sendBytes, 0, sendBytes.Length);
 							
