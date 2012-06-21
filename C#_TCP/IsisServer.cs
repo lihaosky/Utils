@@ -345,10 +345,12 @@ namespace IsisService {
 						
 						if (line == "insert") {
 							commandType = INSERT_CMD;
+							continue;
 						}
 						
 						if (line == "get") {
 							commandType = GET_CMD;
+							continue;
 						}
 						
 						//End of command, use ISIS to send the command!
