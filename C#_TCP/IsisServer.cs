@@ -9,6 +9,7 @@ using System.Threading;
 using Isis;
 
 namespace IsisService {
+	delegate void insert(string command, int rank);
 	delegate void query(string command, int rank);
 	
 	public  class SynchronousSocketListener {
@@ -26,7 +27,8 @@ namespace IsisService {
 		private static bool isVerbose = false;        //Is verbosely print out message
 		
 		private static Group[] shardGroup;            //Shard group
-		private static int QUERY = 0;                 //Query number
+		private static int INSERT = 0;      //Insert number
+		private static int GET = 1;         //Get number
 		private static int timeout = 15000;           //Timeout. Default: 15 sec
 		
 	  	public  static  void StartListening() {
@@ -52,7 +54,7 @@ namespace IsisService {
 		           	    }
 		           	    // An incoming connection needs to be processed.
 		            	lock( ClientSockets.SyncRoot ) {
-		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, QUERY, isVerbose));
+		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, isVerbose));
 		                    ((ClientHandler) ClientSockets[i]).Start();
 		                }
 		            }            
@@ -124,9 +126,11 @@ namespace IsisService {
 	  		
 	  		for (int i = 0; i < shardSize; i++) {
 	  			int local = i;
-	  			shardGroup[i].Handlers[QUERY] += (query)delegate(string command, int rank) {
+	  			
+	  			//Insert handler
+	  			shardGroup[i].Handlers[INSERT] += (insert)delegate(string command, int rank) {
 	  				if (isVerbose) {
-	  					Console.WriteLine("Got a command {0}" + command);
+	  					Console.WriteLine("Got a command {0}", command);
 	  				}
 	  				
 	  				if (shardGroup[local].GetView().GetMyRank() == rank) {
@@ -135,7 +139,7 @@ namespace IsisService {
 	  					}
 	  					shardGroup[local].Reply("Yes");
 	  				} else {
-	  					string ret = talkToMem(command);
+	  					string ret = talkToMem(command, INSERT);
 	  					if (ret == "STORED") {
 	  						shardGroup[local].Reply("Yes");
 	  					} else {
@@ -144,6 +148,23 @@ namespace IsisService {
 	  				}
 	  			};
 	  			
+	  			//Get handler
+	  			shardGroup[i].Handlers[GET] += (query)delegate(string command, int rank) {
+	  				if (isVerbose) {
+	  					Console.WriteLine("Got a command {0}", command);
+	  				}
+  					if (shardGroup[local].GetView().GetMyRank() == rank) {
+  						if (isVerbose) {
+  							Console.WriteLine("Got a message from myself!");
+  						}
+  						shardGroup[local].Reply("END\r\n"); //Definitely not presented in local memcached!
+  					} else {
+  						string ret = talkToMem(command, GET);
+  						shardGroup[local].Reply(ret);
+  					}
+	  			};
+	  			
+	  			//View handler
 	  			shardGroup[i].ViewHandlers += (Isis.ViewHandler)delegate(View v) {
 	  				if (isVerbose) {
 	  					Console.WriteLine("Got a new view {0}" + v);
@@ -177,9 +198,11 @@ namespace IsisService {
 	  	}
 	  	
 	  	//Talk to local memcached
-	  	private static string talkToMem(string command) {
+	  	private static string talkToMem(string command, int commandType) {
 	  		TcpClient client = new TcpClient();
 	  		string line = "";
+	  		string reply = "";
+	  		
 	  		try {
 	  			client.Connect("localhost", memPortNum);
 	  			NetworkStream ns = client.GetStream();
@@ -191,15 +214,28 @@ namespace IsisService {
 	  				ns.Write(sendBytes, 0, sendBytes.Length);
 	  			}
 	  			
-	  			line = reader.ReadLine();
-	  			client.Close();
+	  			if (commandType == INSERT) {
+  					line = reader.ReadLine();
+  					reply = line;
+  					client.Close();
+	  			} else if (commandType == GET) {
+  					while ((line = reader.ReadLine()) != null) {
+  						reply += line;
+  						reply += "\r\n";
+  						
+  						if (line == "END") {
+  							break;
+  						}
+  					}
+  					client.Close();
+	  			}
 	  		} catch (Exception e) {
 	  			Console.WriteLine("Exception in talking to memcached!");
 	  			if (client != null) {
 	  				client.Close();
 	  			}
 	  		}	
-	  			return line;
+	  			return reply;
 	  	}
 	  	
 	  	//Main
@@ -272,14 +308,14 @@ namespace IsisService {
 		Thread ClientThread;
 		Group[] myGroup;
 		Isis.Timeout timeout;
-		int QUERY;
+		const int INSERT_CMD = 0;
+		const int GET_CMD = 1;
 		bool isVerbose;
 		
-		public ClientHandler (TcpClient ClientSocket, Group[] myGroup, int timeout, int query, bool isVerbose) {
+		public ClientHandler (TcpClient ClientSocket, Group[] myGroup, int timeout, bool isVerbose) {
 			this.ClientSocket = ClientSocket;
 			this.myGroup = myGroup;
 			this.timeout = new Isis.Timeout(timeout, Isis.Timeout.TO_FAILURE);
-			QUERY = query;
 			this.isVerbose = isVerbose;
 		}
 
@@ -300,10 +336,21 @@ namespace IsisService {
 
 				using (StreamReader reader = new StreamReader(ClientSocket.GetStream(), System.Text.Encoding.ASCII)) {
 					string command = "";
+					int commandType = 0;
+					
 					while ((line = reader.ReadLine()) != null) {
 						if (isVerbose) {
 							Console.WriteLine("Received a line {0} from client", line);
 						}
+						
+						if (line == "insert") {
+							commandType = INSERT_CMD;
+						}
+						
+						if (line == "get") {
+							commandType = GET_CMD;
+						}
+						
 						//End of command, use ISIS to send the command!
 						if (line == "") {
 							if (isVerbose) {
@@ -311,18 +358,39 @@ namespace IsisService {
 							}
 							
 							List<string> replyList = new List<string>();
-							int nr = myGroup[0].Query(Group.ALL, timeout, QUERY, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
 							
+							int	nr = myGroup[0].Query(Group.ALL, timeout, commandType, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
+
 							if (isVerbose) {
 								foreach (string s in replyList) {
 									Console.WriteLine("Received reply {0}", s);
 								}
 							}
 							
-							//Reply to memcached
-							String reply = "OK.\n";
-							byte[] sendBytes = Encoding.ASCII.GetBytes(reply);
-							networkStream.Write(sendBytes, 0, sendBytes.Length);
+							byte[] sendBytes;
+							string reply;
+							//Send reply to memcached
+							switch (commandType) {
+								//Insert reply
+								case INSERT_CMD:
+									reply = "OK.\n";
+									sendBytes = Encoding.ASCII.GetBytes(reply);
+									networkStream.Write(sendBytes, 0, sendBytes.Length);
+									break;
+								
+								//Get reply
+								case GET_CMD:
+									reply = "END\r\n";
+									foreach (string s in replyList) {
+										if (s != "END\r\n") {
+											reply = s;
+											break;
+										}
+									}
+									sendBytes = Encoding.ASCII.GetBytes(reply);
+									networkStream.Write(sendBytes, 0, sendBytes.Length);
+									break;
+							}
 							
 							command = "";
 						} else {
