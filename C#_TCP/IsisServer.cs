@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Linq;
 using System.Collections.Generic;
 using System.Collections;
@@ -26,7 +27,7 @@ namespace IsisService {
 	 	private static Thread ThreadReclaim;          //Reclaim thread
 		private static bool isVerbose = false;        //Is verbosely print out message
 		
-		private static Group[] shardGroup;            //Shard group
+		private static Isis.Group[] shardGroup;            //Shard group
 		private static int INSERT = 0;      //Insert number
 		private static int GET = 1;         //Get number
 		private static int timeout = 15000;           //Timeout. Default: 15 sec
@@ -110,12 +111,12 @@ namespace IsisService {
 	  			Console.WriteLine("Isis system started!");
 	  		}
 	  		
-	  		shardGroup = new Group[shardSize];
+	  		shardGroup = new Isis.Group[shardSize];
 	  		groupJoin = new bool[shardSize];
 	  		
 	  		int groupNum = myRank;
 	  		for (int i = 0; i < shardSize; i++) {
-	  			shardGroup[i] = new Group("group"+groupNum);
+	  			shardGroup[i] = new Isis.Group("group"+groupNum);
 	  			groupJoin[i] = false;
 	  			
 	  			groupNum--;
@@ -198,7 +199,7 @@ namespace IsisService {
 	  	}
 	  	
 	  	//Talk to local memcached
-	  	private static string talkToMem(string command, int commandType) {
+	  	public static string talkToMem(string command, int commandType) {
 	  		TcpClient client = new TcpClient();
 	  		string line = "";
 	  		string reply = "";
@@ -306,13 +307,13 @@ namespace IsisService {
 		TcpClient ClientSocket ;
 		bool ContinueProcess = false;
 		Thread ClientThread;
-		Group[] myGroup;
+		Isis.Group[] myGroup;
 		Isis.Timeout timeout;
 		const int INSERT_CMD = 0;
 		const int GET_CMD = 1;
 		bool isVerbose;
 		
-		public ClientHandler (TcpClient ClientSocket, Group[] myGroup, int timeout, bool isVerbose) {
+		public ClientHandler (TcpClient ClientSocket, Isis.Group[] myGroup, int timeout, bool isVerbose) {
 			this.ClientSocket = ClientSocket;
 			this.myGroup = myGroup;
 			this.timeout = new Isis.Timeout(timeout, Isis.Timeout.TO_FAILURE);
@@ -361,7 +362,7 @@ namespace IsisService {
 							
 							List<string> replyList = new List<string>();
 							
-							int	nr = myGroup[0].Query(Group.ALL, timeout, commandType, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
+							int	nr = myGroup[0].Query(Isis.Group.ALL, timeout, commandType, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
 
 							if (isVerbose) {
 								foreach (string s in replyList) {
@@ -371,6 +372,8 @@ namespace IsisService {
 							
 							byte[] sendBytes;
 							string reply;
+							string setCmd;
+							
 							//Send reply to memcached
 							switch (commandType) {
 								//Insert reply
@@ -391,6 +394,20 @@ namespace IsisService {
 									}
 									sendBytes = Encoding.ASCII.GetBytes(reply);
 									networkStream.Write(sendBytes, 0, sendBytes.Length);
+									
+									//If there is a value, ask current memcached to store
+									if (reply != "END\r\n") {
+										string[] words = Regex.Split(reply, "\r\n");
+										string[] word = Regex.Split(words[0], " ");
+										setCmd = "set " + word[1] + " 4 0 " + word[4] + "\r\n";
+										setCmd += words[1];
+										setCmd += "\r\n";
+										
+										reply = SynchronousSocketListener.talkToMem(setCmd, 0);
+										if (isVerbose) {
+											Console.WriteLine(reply);
+										}
+									}
 									break;
 							}
 							
