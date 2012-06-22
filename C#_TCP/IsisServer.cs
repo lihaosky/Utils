@@ -399,7 +399,7 @@ namespace IsisService {
 									if (reply != "END\r\n") {
 										string[] words = Regex.Split(reply, "\r\n");
 										string[] word = Regex.Split(words[0], " ");
-										setCmd = "set " + word[1] + " 4 0 " + word[4] + "\r\n";
+										setCmd = "set " + word[1] + " 4 0 " + word[3] + "\r\n";
 										setCmd += words[1];
 										setCmd += "\r\n";
 										
