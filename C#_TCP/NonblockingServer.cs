@@ -7,7 +7,7 @@ using System.Collections;
 using System.Threading;
 
 class StateObject {
-    public byte[] buffer = new byte[1024*64];
+    public byte[] buffer = new byte[1024*1024 + 250];
     public int totalReceived = 0;
     public Socket socket;
 }

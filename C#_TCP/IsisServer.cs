@@ -9,53 +9,43 @@ using System.Collections;
 using System.Threading;
 using Isis;
 
+//Works but quite lousy design!!!
 namespace IsisService {
 	delegate void insert(string command, int rank);
 	delegate void query(string command, int rank);
 	
+	//Blocking socket server
 	public  class SynchronousSocketListener {
-		private static int nodeNum = -1;              //Node number. Has to be specified
-		private static int myRank = -1;               //My rank. Has to be specified
-		private static int shardSize = -1;            //Shard size    
-		private static bool[] groupJoin;              //If all member in a group join
-		private static bool allJoin = false;          //If all the member has join
-		
-		private static int portNum = 1234;            //Default port number 1234
-		private static int memPortNum = 9999;         //Default memcached port number 9999
 		private static ArrayList ClientSockets;       //Array to store client sockets
 		private static bool ContinueReclaim = true;   //If continue reclaim
 	 	private static Thread ThreadReclaim;          //Reclaim thread
-		private static bool isVerbose = false;        //Is verbosely print out message
+		public static Isis.Group[] shardGroup;        //Isis group
 		
-		private static Isis.Group[] shardGroup;            //Shard group
-		private static int INSERT = 0;      //Insert number
-		private static int GET = 1;         //Get number
-		private static int timeout = 15000;           //Timeout. Default: 15 sec
-		
+		//Start listening
 	  	public  static  void StartListening() {
 			ClientSockets = new ArrayList() ;
 			int ClientNbr = 0;
 			ThreadReclaim = new Thread(new ThreadStart(Reclaim));
 			ThreadReclaim.Start() ;
 		
-			TcpListener listener = new TcpListener(portNum);
+			TcpListener listener = new TcpListener(Parameter.portNum);
 			try {
 		    	listener.Start();
 		    
 		        // Start listening for connections.
-		        if (isVerbose) {
+		        if (Parameter.isVerbose) {
 		        	Console.WriteLine("Waiting for a connection...");
 		        }
 		        while (true) {
 		        	TcpClient handler = listener.AcceptTcpClient();
 		                    
 		            if (handler != null)  {
-		            	if (isVerbose) {
+		            	if (Parameter.isVerbose) {
 	 	            		Console.WriteLine("Client#{0} accepted!", ++ClientNbr);
 		           	    }
 		           	    // An incoming connection needs to be processed.
 		            	lock( ClientSockets.SyncRoot ) {
-		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup, timeout, isVerbose));
+		                	int i = ClientSockets.Add(new ClientHandler(handler, shardGroup));
 		                    ((ClientHandler) ClientSockets[i]).Start();
 		                }
 		            }            
@@ -84,7 +74,7 @@ namespace IsisService {
 		                    Object Client = ClientSockets[x];
 		                    if (!( ( ClientHandler ) Client ).Alive )  {
 		                    	ClientSockets.Remove( Client );
-		                    	if (isVerbose) {
+		                    	if (Parameter.isVerbose) {
 		                        	Console.WriteLine("A client left");
 		                        }
 		                    }
@@ -93,21 +83,100 @@ namespace IsisService {
 		        Thread.Sleep(200);
 		    }         
 	  	}
-	  	
-	  	private static void printUsage() {
-	  		Console.WriteLine("Usage:");
-	  		Console.Write("-p: listening port number. Default: 1234\n" + 
-	  					  "-m: memcached port number. Default: 9999\n" +
-	  		              "-v: is verbose. Default: no\n" + 
-	  		              "-n: total node number. Has to be specified\n" + 
-	  		              "-r: my rank. Has to be specified\n" +
-	  		              "-t: timeout for ISIS query. Default: 15 sec" +
-	  		              "-s: shard size. Has to be specifed\n");
+	}
+
+	//Main class
+	class MainClass {
+		//Main
+	  	public static int Main(String[] args) {
+			int i = 0;
+			int nodeNum = -1;
+			int myRank = -1;
+			int shardSize = -1;
+			
+			while (i < args.Length) {
+				//port number
+				if (args[i] == "-p") {
+					Parameter.portNum = Int32.Parse(args[++i]);
+					i++;
+				} else if (args[i] == "-v") {
+					Parameter.isVerbose = true;
+					i++;
+				} else if (args[i] == "-n") {
+					nodeNum = Int32.Parse(args[++i]);
+					i++;
+				} else if (args[i] == "-r") {
+					myRank = Int32.Parse(args[++i]);
+					i++;
+				} else if (args[i] == "-s") {
+					shardSize = Int32.Parse(args[++i]);
+					i++;
+				} else if (args[i] == "-t") {
+					IsisServer.timeout = Int32.Parse(args[++i]);
+					i++;
+				} else if (args[i] == "-m") {
+					Parameter.memPortNum = Int32.Parse(args[++i]);
+					i++;
+				} else {
+					Console.WriteLine("Unknown argument!");
+					Parameter.printUsage();
+					return 0;
+				}
+			}
+			
+			if (nodeNum == -1 || myRank == -1 || shardSize == -1) {
+				Console.WriteLine("Total node number, my rank and shard size have to be specified!");
+				Parameter.printUsage();
+				return 0;
+			}
+			
+			if (myRank >= nodeNum) {
+				Console.WriteLine("Your rank can't be equal to or larger than total node number!");
+				return 0;
+			}
+			
+			if (shardSize > nodeNum) {
+				Console.WriteLine("Shard size can't be larger than node number!");
+				return 0;
+			}
+			
+			if (Parameter.isVerbose) {
+				Console.WriteLine("Listening port number is {0}", Parameter.portNum);
+				Console.WriteLine("Total node number is {0}", nodeNum);
+				Console.WriteLine("My rank is {0}", myRank);
+				Console.WriteLine("Shard size is {0}", shardSize);
+			}
+			
+			IsisServer isisServer = new IsisServer(nodeNum, shardSize, myRank);
+			isisServer.createGroup();
+			while (isisServer.allJoin == false);
+			SynchronousSocketListener.shardGroup = isisServer.shardGroup;
+			SynchronousSocketListener.StartListening();
+			return 0;
 	  	}
-	  	
-	  	private static void createGroup() {
+	}
+
+	class IsisServer {
+		public int nodeNum;
+		public int shardSize;
+		public int myRank;
+		public bool[] groupJoin;
+		public bool allJoin = false;
+		public Isis.Group[] shardGroup;       //Shard group
+		public static int timeout = 15000;    //Timeout. Default: 15 sec
+		public static int INSERT = 0;   //Insert number
+		public static int GET = 1;      //Get number
+
+		
+		public IsisServer(int nodeNum, int shardSize, int myRank) {
+			this.nodeNum = nodeNum;
+			this.shardSize = shardSize;
+			this.myRank = myRank;
+		}
+
+	  	public void createGroup() {
 	  		IsisSystem.Start();
-	  		if (isVerbose) {
+	  		if (Parameter.isVerbose) {
 	  			Console.WriteLine("Isis system started!");
 	  		}
 	  		
@@ -130,17 +199,17 @@ namespace IsisService {
 	  			
 	  			//Insert handler
 	  			shardGroup[i].Handlers[INSERT] += (insert)delegate(string command, int rank) {
-	  				if (isVerbose) {
+	  				if (Parameter.isVerbose) {
 	  					Console.WriteLine("Got a command {0}", command);
 	  				}
 	  				
 	  				if (shardGroup[local].GetView().GetMyRank() == rank) {
-	  					if (isVerbose) {
+	  					if (Parameter.isVerbose) {
 	  						Console.WriteLine("Got a message from myself!");
 	  					}
 	  					shardGroup[local].Reply("Yes");
 	  				} else {
-	  					string ret = talkToMem(command, INSERT);
+	  					string ret = Parameter.talkToMem(command, INSERT);
 	  					if (ret == "STORED") {
 	  						shardGroup[local].Reply("Yes");
 	  					} else {
@@ -151,23 +220,23 @@ namespace IsisService {
 	  			
 	  			//Get handler
 	  			shardGroup[i].Handlers[GET] += (query)delegate(string command, int rank) {
-	  				if (isVerbose) {
+	  				if (Parameter.isVerbose) {
 	  					Console.WriteLine("Got a command {0}", command);
 	  				}
   					if (shardGroup[local].GetView().GetMyRank() == rank) {
-  						if (isVerbose) {
+  						if (Parameter.isVerbose) {
   							Console.WriteLine("Got a message from myself!");
   						}
   						shardGroup[local].Reply("END\r\n"); //Definitely not presented in local memcached!
   					} else {
-  						string ret = talkToMem(command, GET);
+  						string ret = Parameter.talkToMem(command, GET);
   						shardGroup[local].Reply(ret);
   					}
 	  			};
 	  			
 	  			//View handler
 	  			shardGroup[i].ViewHandlers += (Isis.ViewHandler)delegate(View v) {
-	  				if (isVerbose) {
+	  				if (Parameter.isVerbose) {
 	  					Console.WriteLine("Got a new view {0}" + v);
 	  					Console.WriteLine("Group {0} has {1} members", local, shardGroup[local].GetView().GetSize());
 	  				}
@@ -186,7 +255,7 @@ namespace IsisService {
 	  				
 	  				if (isAll) {
 	  					allJoin = true;
-	  					if (isVerbose) {
+	  					if (Parameter.isVerbose) {
 	  						Console.WriteLine("All the members have joined!");
 	  					}
 	  				}
@@ -196,8 +265,16 @@ namespace IsisService {
 	  		for (int i = 0; i < shardSize; i++) {
 	  			shardGroup[i].Join();
 	  		}
-	  	}
-	  	
+	  	}		
+		
+	}
+	
+	//Parameters class
+	class Parameter {
+		public static bool isVerbose = false;        //Is verbosely print out
+		public static int portNum = 1234;            //Default port number 1234
+		public static int memPortNum = 9999;         //Default memcached port number 9999
+
 	  	//Talk to local memcached
 	  	public static string talkToMem(string command, int commandType) {
 	  		TcpClient client = new TcpClient();
@@ -215,11 +292,11 @@ namespace IsisService {
 	  				ns.Write(sendBytes, 0, sendBytes.Length);
 	  			}
 	  			
-	  			if (commandType == INSERT) {
+	  			if (commandType == IsisServer.INSERT) {
   					line = reader.ReadLine();
   					reply = line;
   					client.Close();
-	  			} else if (commandType == GET) {
+	  			} else if (commandType == IsisServer.GET) {
   					while ((line = reader.ReadLine()) != null) {
   						reply += line;
   						reply += "\r\n";
@@ -239,69 +316,20 @@ namespace IsisService {
 	  			return reply;
 	  	}
 	  	
-	  	//Main
-	  	public  static  int Main(String[] args) {
-			int i = 0;
-			while (i < args.Length) {
-				//port number
-				if (args[i] == "-p") {
-					portNum = Int32.Parse(args[++i]);
-					i++;
-				} else if (args[i] == "-v") {
-					isVerbose = true;
-					i++;
-				} else if (args[i] == "-n") {
-					nodeNum = Int32.Parse(args[++i]);
-					i++;
-				} else if (args[i] == "-r") {
-					myRank = Int32.Parse(args[++i]);
-					i++;
-				} else if (args[i] == "-s") {
-					shardSize = Int32.Parse(args[++i]);
-					i++;
-				} else if (args[i] == "-t") {
-					timeout = Int32.Parse(args[++i]);
-					i++;
-				} else if (args[i] == "-m") {
-					memPortNum = Int32.Parse(args[++i]);
-					i++;
-				} else {
-					Console.WriteLine("Unknown argument!");
-					printUsage();
-					return 0;
-				}
-			}
-			
-			if (nodeNum == -1 || myRank == -1 || shardSize == -1) {
-				Console.WriteLine("Total node number, my rank and shard size have to be specified!");
-				printUsage();
-				return 0;
-			}
-			
-			if (myRank >= nodeNum) {
-				Console.WriteLine("Your rank can't be equal to or larger than total node number!");
-				return 0;
-			}
-			
-			if (shardSize > nodeNum) {
-				Console.WriteLine("Shard size can't be larger than node number!");
-				return 0;
-			}
-			
-			if (isVerbose) {
-				Console.WriteLine("Listening port number is {0}", portNum);
-				Console.WriteLine("Total node number is {0}", nodeNum);
-				Console.WriteLine("My rank is {0}", myRank);
-				Console.WriteLine("Shard size is {0}", shardSize);
-			}
-			
-			createGroup();
-			while (allJoin == false);
-			StartListening();
-			return 0;
+	  	//Print out usage
+	  	public static void printUsage() {
+	  		Console.WriteLine("Usage:");
+	  		Console.Write("-p: listening port number. Default: 1234\n" + 
+	  					  "-m: memcached port number. Default: 9999\n" +
+	  		              "-v: is verbose. Default: no\n" + 
+	  		              "-n: total node number. Has to be specified\n" + 
+	  		              "-r: my rank. Has to be specified\n" +
+	  		              "-t: timeout for ISIS query. Default: 15 sec" +
+	  		              "-s: shard size. Has to be specifed\n");
 	  	}
 	}
-
+	
+	//Client handler class
 	class ClientHandler {
 
 		TcpClient ClientSocket ;
@@ -309,15 +337,13 @@ namespace IsisService {
 		Thread ClientThread;
 		Isis.Group[] myGroup;
 		Isis.Timeout timeout;
-		const int INSERT_CMD = 0;
-		const int GET_CMD = 1;
-		bool isVerbose;
+		const int INSERT = 0;
+		const int GET = 1;
 		
-		public ClientHandler (TcpClient ClientSocket, Isis.Group[] myGroup, int timeout, bool isVerbose) {
+		public ClientHandler (TcpClient ClientSocket, Isis.Group[] myGroup) {
 			this.ClientSocket = ClientSocket;
 			this.myGroup = myGroup;
-			this.timeout = new Isis.Timeout(timeout, Isis.Timeout.TO_FAILURE);
-			this.isVerbose = isVerbose;
+			this.timeout = new Isis.Timeout(IsisServer.timeout, Isis.Timeout.TO_FAILURE);
 		}
 
 		public void Start() {
@@ -340,31 +366,27 @@ namespace IsisService {
 					int commandType = 0;
 					
 					while ((line = reader.ReadLine()) != null) {
-						if (isVerbose) {
+						if (Parameter.isVerbose) {
 							Console.WriteLine("Received a line {0} from client", line);
 						}
 						
 						if (line == "insert") {
-							commandType = INSERT_CMD;
+							commandType = IsisServer.INSERT;
 							continue;
 						}
 						
 						if (line == "get") {
-							commandType = GET_CMD;
+							commandType = IsisServer.GET;
 							continue;
 						}
 						
 						//End of command, use ISIS to send the command!
 						if (line == "") {
-							if (isVerbose) {
-								Console.WriteLine("Send command to other nodes. Wait for reply!");
-							}
-							
 							List<string> replyList = new List<string>();
 							
 							int	nr = myGroup[0].Query(Isis.Group.ALL, timeout, commandType, command, myGroup[0].GetView().GetMyRank(), new EOLMarker(), replyList);
 
-							if (isVerbose) {
+							if (Parameter.isVerbose) {
 								foreach (string s in replyList) {
 									Console.WriteLine("Received reply {0}", s);
 								}
@@ -377,14 +399,14 @@ namespace IsisService {
 							//Send reply to memcached
 							switch (commandType) {
 								//Insert reply
-								case INSERT_CMD:
+								case INSERT:
 									reply = "OK.\n";
 									sendBytes = Encoding.ASCII.GetBytes(reply);
 									networkStream.Write(sendBytes, 0, sendBytes.Length);
 									break;
 								
 								//Get reply
-								case GET_CMD:
+								case GET:
 									reply = "END\r\n";
 									foreach (string s in replyList) {
 										if (s != "END\r\n") {
@@ -403,8 +425,8 @@ namespace IsisService {
 										setCmd += words[1];
 										setCmd += "\r\n";
 										
-										reply = SynchronousSocketListener.talkToMem(setCmd, 0);
-										if (isVerbose) {
+										reply = Parameter.talkToMem(setCmd, 0);
+										if (Parameter.isVerbose) {
 											Console.WriteLine(reply);
 										}
 									}
@@ -422,7 +444,7 @@ namespace IsisService {
 		        networkStream.Close();
 		    	ClientSocket.Close();			
 		    	
-		    	if (isVerbose) {
+		    	if (Parameter.isVerbose) {
 		        	Console.WriteLine("Connection closed!");
 		        }
 			}
